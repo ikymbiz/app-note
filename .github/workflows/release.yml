@@ -17,11 +17,35 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 25
     permissions:
-      contents: write    # GitHub Release を作成するために必要
+      contents: write
 
     steps:
       - name: Checkout
         uses: actions/checkout@v4
+
+      - name: Locate Gradle project
+        id: find
+        run: |
+          echo "=== Repository layout ==="
+          ls -la
+          echo ""
+          SETTINGS=$(find . -maxdepth 3 -type f \
+            \( -name "settings.gradle.kts" -o -name "settings.gradle" \) \
+            2>/dev/null | head -n1)
+          if [ -z "$SETTINGS" ]; then
+            echo "::error::settings.gradle(.kts) not found."
+            exit 1
+          fi
+          ROOT=$(dirname "$SETTINGS")
+          ROOT="${ROOT#./}"
+          [ -z "$ROOT" ] && ROOT="."
+          echo "✅ Found Gradle project at: '$ROOT'"
+          echo "root=$ROOT" >> "$GITHUB_OUTPUT"
+          if [ "$ROOT" = "." ]; then
+            echo "prefix=" >> "$GITHUB_OUTPUT"
+          else
+            echo "prefix=$ROOT/" >> "$GITHUB_OUTPUT"
+          fi
 
       - name: Set up JDK 17
         uses: actions/setup-java@v4
@@ -33,16 +57,16 @@ jobs:
         uses: gradle/actions/setup-gradle@v3
         with:
           gradle-version: "8.7"
+          build-root-directory: ${{ steps.find.outputs.root }}
 
       - name: Generate Gradle wrapper if missing
+        working-directory: ${{ steps.find.outputs.root }}
         run: |
           if [ ! -f gradlew ]; then
             gradle wrapper --gradle-version 8.7 --distribution-type bin
           fi
           chmod +x gradlew
 
-      # 署名キーが secrets に設定されていれば release 署名、
-      # なければ unsigned APK をそのまま生成する
       - name: Decode signing keystore (optional)
         id: keystore
         if: ${{ env.KEYSTORE_BASE64 != '' }}
@@ -54,6 +78,7 @@ jobs:
 
       - name: Build release APK (signed)
         if: ${{ steps.keystore.outputs.path != '' }}
+        working-directory: ${{ steps.find.outputs.root }}
         env:
           KEYSTORE_PATH: ${{ steps.keystore.outputs.path }}
           KEYSTORE_PASSWORD: ${{ secrets.KEYSTORE_PASSWORD }}
@@ -63,16 +88,18 @@ jobs:
 
       - name: Build release APK (unsigned)
         if: ${{ steps.keystore.outputs.path == '' }}
+        working-directory: ${{ steps.find.outputs.root }}
         run: ./gradlew assembleRelease --no-daemon --stacktrace
 
       - name: Rename APK with version tag
         id: rename
+        working-directory: ${{ steps.find.outputs.root }}
         run: |
           TAG="${GITHUB_REF_NAME:-${{ github.event.inputs.tag }}}"
           SRC=$(ls app/build/outputs/apk/release/*.apk | head -n1)
           DST="app/build/outputs/apk/release/NoteApp-${TAG}.apk"
           cp "$SRC" "$DST"
-          echo "apk=$DST" >> "$GITHUB_OUTPUT"
+          echo "apk=${{ steps.find.outputs.prefix }}$DST" >> "$GITHUB_OUTPUT"
           echo "tag=$TAG" >> "$GITHUB_OUTPUT"
 
       - name: Upload APK artifact
