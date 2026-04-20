@@ -1,0 +1,639 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+<title>エディタ</title>
+<script src="https://cdn.jsdelivr.net/npm/marked@12.0.0/marked.min.js"></script>
+<style>
+@import url('https://fonts.googleapis.com/css2?family=Noto+Sans+JP:wght@400;500;700&family=JetBrains+Mono:wght@400;500&display=swap');
+
+:root {
+  --bg: #1a1a2e;
+  --surface: #16213e;
+  --surface2: #0f3460;
+  --accent: #e94560;
+  --accent2: #533483;
+  --text: #eaeaea;
+  --text2: #a0a0b8;
+  --border: #2a2a4a;
+  --header-h: 56px;
+  --toolbar-h: 48px;
+}
+
+* { box-sizing: border-box; margin: 0; padding: 0; -webkit-tap-highlight-color: transparent; }
+
+html, body {
+  height: 100%;
+  overflow: hidden;
+  font-family: 'Noto Sans JP', sans-serif;
+  background: var(--bg);
+  color: var(--text);
+}
+
+/* ===== HEADER ===== */
+header {
+  height: var(--header-h);
+  background: var(--surface);
+  border-bottom: 1px solid var(--border);
+  display: flex;
+  align-items: center;
+  padding: 0 12px;
+  gap: 8px;
+  position: sticky;
+  top: 0;
+  z-index: 10;
+  backdrop-filter: blur(12px);
+}
+
+.logo {
+  font-size: 18px;
+  font-weight: 700;
+  letter-spacing: .05em;
+  color: var(--text);
+  flex-shrink: 0;
+}
+.logo em { color: var(--accent); font-style: normal; }
+
+#filename-display {
+  flex: 1;
+  text-align: center;
+  font-size: 12px;
+  color: var(--text2);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  padding: 0 4px;
+}
+
+.modified-dot {
+  width: 7px; height: 7px;
+  background: var(--accent);
+  border-radius: 50%;
+  flex-shrink: 0;
+  display: none;
+}
+.modified-dot.visible { display: block; }
+
+/* ===== TOOLBAR ===== */
+.toolbar-row {
+  height: var(--toolbar-h);
+  background: var(--surface);
+  border-bottom: 1px solid var(--border);
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  padding: 0 10px;
+  overflow-x: auto;
+  scrollbar-width: none;
+  flex-shrink: 0;
+}
+.toolbar-row::-webkit-scrollbar { display: none; }
+
+/* 2段目（編集ツール）は少し背景を沈ませて階層を表現 */
+#toolbar-edit {
+  background: #13172b;
+}
+
+.btn {
+  border: none;
+  cursor: pointer;
+  font-family: inherit;
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  border-radius: 7px;
+  font-size: 12px;
+  font-weight: 500;
+  white-space: nowrap;
+  transition: background .15s, transform .1s, color .15s;
+  user-select: none;
+  flex-shrink: 0;
+}
+.btn:active { transform: scale(.94); }
+
+.btn-icon {
+  background: transparent;
+  color: var(--text2);
+  padding: 8px 10px;
+  font-size: 15px;
+}
+.btn-icon:hover { background: var(--border); color: var(--text); }
+
+.btn-accent {
+  background: var(--accent);
+  color: #fff;
+  padding: 7px 13px;
+}
+.btn-accent:hover { background: #c73852; }
+
+.btn-ghost {
+  background: var(--border);
+  color: var(--text2);
+  padding: 7px 11px;
+}
+.btn-ghost:hover { background: var(--surface2); color: var(--text); }
+
+.divider {
+  width: 1px;
+  height: 24px;
+  background: var(--border);
+  margin: 0 2px;
+  flex-shrink: 0;
+}
+
+/* ===== EDITOR ===== */
+#editor-wrap {
+  height: calc(100dvh - var(--header-h) - var(--toolbar-h) * 2);
+  display: flex;
+  flex-direction: column;
+}
+
+#editor {
+  flex: 1;
+  width: 100%;
+  background: var(--bg);
+  color: var(--text);
+  font-family: 'JetBrains Mono', monospace;
+  font-size: 15px;
+  line-height: 1.75;
+  padding: 20px 16px;
+  border: none;
+  outline: none;
+  resize: none;
+  caret-color: var(--accent);
+  /* smoother iOS scroll */
+  -webkit-overflow-scrolling: touch;
+  overflow-y: auto;
+}
+
+#editor::placeholder { color: var(--text2); opacity: .5; }
+
+/* selection color */
+#editor::selection { background: rgba(233,69,96,.25); }
+
+/* ===== STATUS BAR ===== */
+#statusbar {
+  height: 28px;
+  background: var(--surface);
+  border-top: 1px solid var(--border);
+  display: flex;
+  align-items: center;
+  padding: 0 14px;
+  gap: 14px;
+  font-size: 11px;
+  color: var(--text2);
+  letter-spacing: .02em;
+  flex-shrink: 0;
+}
+#statusbar span { display: flex; align-items: center; gap: 4px; }
+
+/* ===== TOAST ===== */
+#toast {
+  position: fixed;
+  bottom: 40px;
+  left: 50%;
+  transform: translateX(-50%) translateY(20px);
+  background: #222240;
+  color: var(--text);
+  padding: 10px 20px;
+  border-radius: 100px;
+  font-size: 13px;
+  border: 1px solid var(--border);
+  box-shadow: 0 8px 32px rgba(0,0,0,.4);
+  opacity: 0;
+  transition: opacity .25s, transform .25s;
+  pointer-events: none;
+  white-space: nowrap;
+  z-index: 999;
+}
+#toast.show {
+  opacity: 1;
+  transform: translateX(-50%) translateY(0);
+}
+
+/* ===== SCROLLBAR (desktop) ===== */
+#editor::-webkit-scrollbar { width: 5px; }
+#editor::-webkit-scrollbar-track { background: transparent; }
+#editor::-webkit-scrollbar-thumb { background: var(--border); border-radius: 4px; }
+
+/* ===== PREVIEW ===== */
+#preview {
+  flex: 1;
+  width: 100%;
+  background: #fafafa;
+  color: #222;
+  padding: 28px 22px 60px;
+  overflow-y: auto;
+  -webkit-overflow-scrolling: touch;
+  display: none;
+  font-family: 'Noto Sans JP', sans-serif;
+  font-size: 15px;
+  line-height: 1.8;
+}
+#preview.visible { display: block; }
+#editor.hidden { display: none; }
+
+/* Markdown styles inside preview */
+#preview h1, #preview h2, #preview h3,
+#preview h4, #preview h5, #preview h6 {
+  margin: 1.4em 0 .6em;
+  line-height: 1.3;
+  color: #1a1a2e;
+}
+#preview h1 {
+  font-size: 1.9em;
+  border-bottom: 2px solid #e94560;
+  padding-bottom: .3em;
+}
+#preview h2 {
+  font-size: 1.5em;
+  border-bottom: 1px solid #ddd;
+  padding-bottom: .2em;
+}
+#preview h3 { font-size: 1.25em; }
+#preview h4 { font-size: 1.1em; }
+
+#preview p { margin: .8em 0; }
+#preview a { color: #e94560; text-decoration: underline; }
+#preview strong { color: #1a1a2e; }
+
+#preview ul, #preview ol {
+  margin: .8em 0;
+  padding-left: 1.6em;
+}
+#preview li { margin: .3em 0; }
+
+#preview blockquote {
+  border-left: 4px solid #e94560;
+  background: #f0f0f5;
+  margin: 1em 0;
+  padding: .6em 1em;
+  color: #555;
+}
+
+#preview code {
+  background: #eee;
+  color: #c73852;
+  padding: 2px 6px;
+  border-radius: 4px;
+  font-family: 'JetBrains Mono', monospace;
+  font-size: .9em;
+}
+#preview pre {
+  background: #1a1a2e;
+  color: #eaeaea;
+  padding: 14px 16px;
+  border-radius: 8px;
+  overflow-x: auto;
+  margin: 1em 0;
+  font-size: .88em;
+  line-height: 1.6;
+}
+#preview pre code {
+  background: transparent;
+  color: inherit;
+  padding: 0;
+  font-size: inherit;
+}
+
+#preview table {
+  border-collapse: collapse;
+  margin: 1em 0;
+  width: 100%;
+  font-size: .95em;
+}
+#preview th, #preview td {
+  border: 1px solid #ddd;
+  padding: 8px 12px;
+  text-align: left;
+}
+#preview th { background: #f0f0f5; font-weight: 600; }
+
+#preview hr {
+  border: none;
+  border-top: 1px solid #ddd;
+  margin: 1.5em 0;
+}
+#preview img { max-width: 100%; height: auto; }
+
+/* ===== PRINT ===== */
+@media print {
+  /* Hide all non-print UI */
+  header, .toolbar-row, #statusbar, #toast, #editor {
+    display: none !important;
+  }
+  html, body {
+    height: auto !important;
+    overflow: visible !important;
+    background: #fff !important;
+    color: #000 !important;
+  }
+  #editor-wrap {
+    height: auto !important;
+    display: block !important;
+  }
+  #preview {
+    display: block !important;
+    background: #fff !important;
+    color: #000 !important;
+    padding: 0 !important;
+    overflow: visible !important;
+    font-size: 11pt;
+  }
+  #preview pre {
+    background: #f5f5f5 !important;
+    color: #000 !important;
+    border: 1px solid #ddd;
+    page-break-inside: avoid;
+  }
+  #preview pre code { color: #000 !important; }
+  #preview code {
+    background: #f0f0f0 !important;
+    color: #c73852 !important;
+  }
+  #preview h1, #preview h2, #preview h3 {
+    page-break-after: avoid;
+    color: #000 !important;
+  }
+  #preview blockquote {
+    background: #f8f8f8 !important;
+    page-break-inside: avoid;
+  }
+  #preview a { color: #000 !important; }
+  @page { margin: 18mm; }
+}
+</style>
+</head>
+<body>
+
+<header>
+  <div class="logo">note<em>.</em></div>
+  <div id="filename-display">新規ファイル</div>
+  <div class="modified-dot" id="modified-dot" title="未保存の変更あり"></div>
+</header>
+
+<!-- 1段目: ファイル操作 + 表示 -->
+<div id="toolbar" class="toolbar-row">
+  <button class="btn btn-ghost" onclick="newFile()" title="新規">
+    ＋ 新規
+  </button>
+  <button class="btn btn-ghost" onclick="openFile()" title="開く">
+    📂 開く
+  </button>
+  <button class="btn btn-accent" onclick="saveFile()" title="保存">
+    💾 保存
+  </button>
+  <div class="divider"></div>
+  <button class="btn btn-ghost" id="preview-btn" onclick="togglePreview()" title="プレビュー">
+    👁 プレビュー
+  </button>
+  <button class="btn btn-ghost" onclick="printPreview()" title="印刷 / PDF">
+    🖨 印刷
+  </button>
+</div>
+
+<!-- 2段目: 編集ツール -->
+<div id="toolbar-edit" class="toolbar-row">
+  <button class="btn btn-icon" onclick="insertText('**太字**')" title="太字">𝐁</button>
+  <button class="btn btn-icon" onclick="insertText('*斜体*')" title="斜体">𝐼</button>
+  <button class="btn btn-icon" onclick="insertLine('# ')" title="見出し">H</button>
+  <button class="btn btn-icon" onclick="insertLine('- ')" title="リスト">≡</button>
+  <button class="btn btn-icon" onclick="insertLine('> ')" title="引用">❝</button>
+  <button class="btn btn-icon" onclick="insertText('\`\`\`\n\n\`\`\`')" title="コードブロック">{ }</button>
+</div>
+
+<div id="editor-wrap">
+  <textarea id="editor" placeholder="ここに入力…　.txt / .md ファイルの読み書きに対応"></textarea>
+  <div id="preview"></div>
+  <div id="statusbar">
+    <span>📄 <span id="stat-lines">0</span> 行</span>
+    <span>✏️ <span id="stat-chars">0</span> 文字</span>
+    <span id="stat-type">TXT</span>
+  </div>
+</div>
+
+<div id="toast"></div>
+
+<script>
+const editor = document.getElementById('editor');
+const filenameDisplay = document.getElementById('filename-display');
+const modifiedDot = document.getElementById('modified-dot');
+const statLines = document.getElementById('stat-lines');
+const statChars = document.getElementById('stat-chars');
+const statType = document.getElementById('stat-type');
+const toast = document.getElementById('toast');
+
+let fileHandle = null;
+let isModified = false;
+let toastTimer = null;
+
+// 保存ダイアログで形式を選べるように、よく使う形式を列挙。
+// excludeAcceptAllOption を省略（=false）にすることで、
+// 「すべてのファイル」オプションから任意の拡張子も入力可能。
+const pickerOptions = {
+  types: [
+    { description: 'Markdown', accept: { 'text/markdown': ['.md', '.markdown'] } },
+    { description: 'テキスト',   accept: { 'text/plain':    ['.txt'] } },
+    { description: 'HTML',      accept: { 'text/html':     ['.html', '.htm'] } },
+    { description: 'CSS',       accept: { 'text/css':      ['.css'] } },
+    { description: 'JavaScript',accept: { 'text/javascript':['.js', '.mjs'] } },
+    { description: 'JSON',      accept: { 'application/json':['.json'] } },
+    { description: 'XML',       accept: { 'application/xml':['.xml'] } },
+    { description: 'YAML',      accept: { 'text/yaml':     ['.yml', '.yaml'] } },
+    { description: 'CSV',       accept: { 'text/csv':      ['.csv'] } },
+    { description: 'TSV',       accept: { 'text/tab-separated-values': ['.tsv'] } },
+  ],
+};
+
+// ファイル名から「種別ラベル」(MD / HTML / JS など) を返す
+function fileTypeLabel(name) {
+  if (!name) return 'TXT';
+  const m = name.match(/\.([^.]+)$/);
+  return m ? m[1].toUpperCase() : 'TXT';
+}
+
+// ===== 状態管理 =====
+function setModified(val) {
+  isModified = val;
+  modifiedDot.classList.toggle('visible', val);
+}
+
+function updateStats() {
+  const val = editor.value;
+  const lines = val === '' ? 0 : val.split('\n').length;
+  statLines.textContent = lines;
+  statChars.textContent = val.length;
+}
+
+editor.addEventListener('input', () => {
+  setModified(true);
+  updateStats();
+});
+
+// ===== トースト =====
+function showToast(msg, duration = 2000) {
+  toast.textContent = msg;
+  toast.classList.add('show');
+  clearTimeout(toastTimer);
+  toastTimer = setTimeout(() => toast.classList.remove('show'), duration);
+}
+
+// ===== ファイル操作 =====
+async function newFile() {
+  if (isModified && !confirm('未保存の変更があります。破棄しますか？')) return;
+  editor.value = '';
+  fileHandle = null;
+  filenameDisplay.textContent = '新規ファイル';
+  statType.textContent = 'TXT';
+  setModified(false);
+  updateStats();
+  editor.focus();
+}
+
+async function openFile() {
+  try {
+    [fileHandle] = await window.showOpenFilePicker(pickerOptions);
+    const file = await fileHandle.getFile();
+    editor.value = await file.text();
+    filenameDisplay.textContent = file.name;
+    statType.textContent = fileTypeLabel(file.name);
+    setModified(false);
+    updateStats();
+    showToast('📂 ' + file.name + ' を開きました');
+  } catch (e) {
+    if (e.name !== 'AbortError') showToast('⚠️ 開けませんでした');
+  }
+}
+
+async function saveFile() {
+  if (!fileHandle) return saveFileAs();
+  try {
+    await writeFile(fileHandle, editor.value);
+    setModified(false);
+    showToast('✅ 保存しました');
+  } catch (e) {
+    showToast('⚠️ 保存に失敗しました');
+  }
+}
+
+async function saveFileAs() {
+  try {
+    fileHandle = await window.showSaveFilePicker(pickerOptions);
+    await writeFile(fileHandle, editor.value);
+    const file = await fileHandle.getFile();
+    filenameDisplay.textContent = file.name;
+    statType.textContent = fileTypeLabel(file.name);
+    setModified(false);
+    showToast('✅ ' + file.name + ' に保存しました');
+  } catch (e) {
+    if (e.name !== 'AbortError') showToast('⚠️ 保存に失敗しました');
+  }
+}
+
+async function writeFile(handle, contents) {
+  const writable = await handle.createWritable();
+  await writable.write(contents);
+  await writable.close();
+}
+
+// ===== インサート系 =====
+function insertText(text) {
+  const start = editor.selectionStart;
+  const end = editor.selectionEnd;
+  const val = editor.value;
+  editor.value = val.slice(0, start) + text + val.slice(end);
+  editor.selectionStart = editor.selectionEnd = start + text.length;
+  editor.focus();
+  setModified(true);
+  updateStats();
+}
+
+function insertLine(prefix) {
+  const start = editor.selectionStart;
+  const val = editor.value;
+  const lineStart = val.lastIndexOf('\n', start - 1) + 1;
+  editor.value = val.slice(0, lineStart) + prefix + val.slice(lineStart);
+  const newPos = start + prefix.length;
+  editor.selectionStart = editor.selectionEnd = newPos;
+  editor.focus();
+  setModified(true);
+  updateStats();
+}
+
+// ===== ショートカット =====
+document.addEventListener('keydown', e => {
+  if ((e.ctrlKey || e.metaKey) && e.key === 's') {
+    e.preventDefault();
+    saveFile();
+  }
+  if ((e.ctrlKey || e.metaKey) && e.key === 'o') {
+    e.preventDefault();
+    openFile();
+  }
+  if ((e.ctrlKey || e.metaKey) && e.key === 'n') {
+    e.preventDefault();
+    newFile();
+  }
+});
+
+// ===== 初期化 =====
+updateStats();
+
+// ===== プレビュー / 印刷 =====
+const preview = document.getElementById('preview');
+const previewBtn = document.getElementById('preview-btn');
+let isPreview = false;
+
+// marked.js の設定（改行をそのまま <br> にして、GFM 対応）
+if (window.marked) {
+  marked.setOptions({ breaks: true, gfm: true });
+}
+
+function renderPreview() {
+  const md = editor.value;
+  // marked がロードできなかった場合のフォールバック
+  if (!window.marked) {
+    preview.textContent = md;
+    return;
+  }
+  preview.innerHTML = marked.parse(md);
+}
+
+function togglePreview() {
+  isPreview = !isPreview;
+  if (isPreview) {
+    renderPreview();
+    editor.classList.add('hidden');
+    preview.classList.add('visible');
+    previewBtn.innerHTML = '✏️ 編集';
+  } else {
+    editor.classList.remove('hidden');
+    preview.classList.remove('visible');
+    previewBtn.innerHTML = '👁 プレビュー';
+  }
+}
+
+function printPreview() {
+  // 印刷時は常にレンダリング済みの内容を出す
+  renderPreview();
+  // 一時的にプレビューを表示状態にして印刷（@media print で制御）
+  const wasPreview = isPreview;
+  if (!wasPreview) preview.classList.add('visible');
+  // タイトルを現ファイル名に
+  const originalTitle = document.title;
+  document.title = filenameDisplay.textContent.replace(/\.[^.]+$/, '') || 'document';
+  window.print();
+  document.title = originalTitle;
+  if (!wasPreview) preview.classList.remove('visible');
+}
+
+// プレビュー中に編集ボタン以外からファイルを開いた場合など、再描画
+const origOpenFile = openFile;
+openFile = async function() {
+  await origOpenFile();
+  if (isPreview) renderPreview();
+};
+</script>
+</body>
+</html>
