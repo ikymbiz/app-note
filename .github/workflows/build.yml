@@ -6,6 +6,7 @@ on:
   pull_request:
   workflow_dispatch:
 
+# 同じブランチで新しいpushが来たら古い実行をキャンセル
 concurrency:
   group: build-${{ github.ref }}
   cancel-in-progress: true
@@ -15,11 +16,6 @@ jobs:
     name: Debug APK
     runs-on: ubuntu-latest
     timeout-minutes: 20
-
-    # 全ての `run:` ステップを NoteApp/ ディレクトリで実行
-    defaults:
-      run:
-        working-directory: NoteApp
 
     steps:
       - name: Checkout
@@ -31,14 +27,16 @@ jobs:
           distribution: temurin
           java-version: "17"
 
-      # setup-gradle に build-root-directory を指定
+      # Gradle を provisioning。gradle-version を指定することで
+      # プロジェクトに wrapper が無くても `gradle` コマンドが使える。
       - name: Set up Gradle
         uses: gradle/actions/setup-gradle@v3
         with:
           gradle-version: "8.7"
-          build-root-directory: NoteApp
           cache-read-only: ${{ github.ref != 'refs/heads/main' }}
 
+      # 初回ビルド時に wrapper が無ければ生成する（2回目以降はキャッシュされた
+      # リポジトリに gradlew がコミットされていればスキップ）
       - name: Generate Gradle wrapper if missing
         run: |
           if [ ! -f gradlew ]; then
@@ -54,13 +52,11 @@ jobs:
       - name: Build debug APK
         run: ./gradlew assembleDebug --no-daemon --stacktrace
 
-      # upload-artifact は run ステップではないので
-      # working-directory が効かない。NoteApp/ 付きのフルパスで指定。
       - name: Upload APK
         uses: actions/upload-artifact@v4
         with:
           name: NoteApp-debug
-          path: NoteApp/app/build/outputs/apk/debug/*.apk
+          path: app/build/outputs/apk/debug/*.apk
           if-no-files-found: error
           retention-days: 14
 
@@ -69,6 +65,6 @@ jobs:
         uses: actions/upload-artifact@v4
         with:
           name: lint-report
-          path: NoteApp/app/build/reports/lint-results-debug.html
+          path: app/build/reports/lint-results-debug.html
           if-no-files-found: ignore
           retention-days: 7
