@@ -20,27 +20,35 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v4
 
-      # リポジトリ内の Gradle プロジェクトを自動検出
-      # settings.gradle(.kts) があるディレクトリをルートとして使う
+      # ZIPファイルがリポジトリに置かれていたら自動展開する
+      # （ZIPを展開し忘れてpushしても動くようにするための保険）
+      - name: Auto-extract ZIP files
+        run: |
+          shopt -s nullglob
+          for zip in *.zip; do
+            echo "📦 Extracting $zip ..."
+            unzip -o "$zip"
+          done
+          echo ""
+          echo "=== Contents after extract ==="
+          ls -la
+
+      # Gradleプロジェクト(settings.gradle.kts があるディレクトリ)を探す
       - name: Locate Gradle project
         id: find
         run: |
-          echo "=== Repository layout ==="
-          ls -la
-          echo ""
-          SETTINGS=$(find . -maxdepth 3 -type f \
+          SETTINGS=$(find . -maxdepth 4 -type f \
             \( -name "settings.gradle.kts" -o -name "settings.gradle" \) \
-            2>/dev/null | head -n1)
+            -not -path "./.git/*" 2>/dev/null | head -n1)
           if [ -z "$SETTINGS" ]; then
-            echo "::error::settings.gradle(.kts) not found. Repository must contain a Gradle project."
+            echo "::error::settings.gradle(.kts) not found anywhere in the repository."
             exit 1
           fi
           ROOT=$(dirname "$SETTINGS")
           ROOT="${ROOT#./}"
           [ -z "$ROOT" ] && ROOT="."
-          echo "✅ Found Gradle project at: '$ROOT'"
+          echo "✅ Gradle project root: '$ROOT'"
           echo "root=$ROOT" >> "$GITHUB_OUTPUT"
-          # artifact パス用の prefix (./ でも使えるように)
           if [ "$ROOT" = "." ]; then
             echo "prefix=" >> "$GITHUB_OUTPUT"
           else

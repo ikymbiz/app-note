@@ -23,15 +23,21 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v4
 
+      - name: Auto-extract ZIP files
+        run: |
+          shopt -s nullglob
+          for zip in *.zip; do
+            echo "📦 Extracting $zip ..."
+            unzip -o "$zip"
+          done
+          ls -la
+
       - name: Locate Gradle project
         id: find
         run: |
-          echo "=== Repository layout ==="
-          ls -la
-          echo ""
-          SETTINGS=$(find . -maxdepth 3 -type f \
+          SETTINGS=$(find . -maxdepth 4 -type f \
             \( -name "settings.gradle.kts" -o -name "settings.gradle" \) \
-            2>/dev/null | head -n1)
+            -not -path "./.git/*" 2>/dev/null | head -n1)
           if [ -z "$SETTINGS" ]; then
             echo "::error::settings.gradle(.kts) not found."
             exit 1
@@ -39,7 +45,7 @@ jobs:
           ROOT=$(dirname "$SETTINGS")
           ROOT="${ROOT#./}"
           [ -z "$ROOT" ] && ROOT="."
-          echo "✅ Found Gradle project at: '$ROOT'"
+          echo "✅ Gradle project root: '$ROOT'"
           echo "root=$ROOT" >> "$GITHUB_OUTPUT"
           if [ "$ROOT" = "." ]; then
             echo "prefix=" >> "$GITHUB_OUTPUT"
